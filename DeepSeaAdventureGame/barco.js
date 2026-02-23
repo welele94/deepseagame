@@ -36,6 +36,19 @@ export function createBoat(canvas) {
     // alinhamento do sprite à linha de água (percentagem da altura do sprite)
     waterlineAt: 0.77,
 
+    // --- screen rect do último draw (para rope/colisões)
+    screenX: 0,
+    screenY: 0,
+    screenW: 0,
+    screenH: 0,
+
+    // waterline em screen (atualizada a cada draw)
+    waterlineScreenY: 0,
+
+    // ponto onde a corda prende (normalizado no sprite)
+    attachNormX: 0.55,
+    attachNormY: 0.78,
+
     // float configurável (positivo = sobe, negativo = desce)
     floatNorm: boatFloatNorm,
 
@@ -65,6 +78,7 @@ export function drawBoat(ctx, canvas, boat, tSec, waterlineNorm) {
 
   // mundo -> ecrã
   const sp = imageToScreen(boatIx, boatIy);
+  boat.waterlineScreenY = sp.y;
 
   // escala do mundo (já inclui zoom/camera)
   const worldScale = bg.lastRect.scale;
@@ -79,9 +93,6 @@ export function drawBoat(ctx, canvas, boat, tSec, waterlineNorm) {
   // float offset
   const floatNorm = Number.isFinite(boat.floatNorm) ? boat.floatNorm : DEFAULT_FLOAT_NORM;
 
-  // ⚠️ no teu código estavas a multiplicar por um "mobileBoost"
-  // isso é o que te estava a dar valores negativos e confusão.
-  // Aqui mantemos simples e estável:
   // floatNorm positivo levanta o barco; negativo afunda.
   const floatOffsetPx = boatH * floatNorm;
 
@@ -96,6 +107,12 @@ export function drawBoat(ctx, canvas, boat, tSec, waterlineNorm) {
   const tilt =
     Math.sin(tSec * Math.PI * 2 * (boat.tilt?.speed ?? 0.35)) * (boat.tilt?.amp ?? 0.035);
 
+  // --- guardar rect real do barco no ecrã (antes de desenhar)
+  boat.screenX = sp.x - boatW / 2;
+  boat.screenY = yTop;
+  boat.screenW = boatW;
+  boat.screenH = boatH;
+
   // desenhar (com rotação suave)
   ctx.save();
   ctx.translate(sp.x, yTop + boatH / 2);
@@ -105,4 +122,14 @@ export function drawBoat(ctx, canvas, boat, tSec, waterlineNorm) {
 
   // cache (se quiseres mostrar no debug)
   boat._last = { boatW, boatH, isMobile };
+}
+
+// ===============================
+// ANCHOR
+// ===============================
+export function getBoatAnchor(boat) {
+  return {
+    x: boat.screenX + boat.screenW * (boat.attachNormX ?? 0.55),
+    y: boat.screenY + boat.screenH * (boat.attachNormY ?? 0.78),
+  };
 }

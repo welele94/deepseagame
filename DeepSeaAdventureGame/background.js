@@ -7,7 +7,7 @@ export const BG_SRC =
   "https://raw.githubusercontent.com/welele94/deepseagame/main/ChatGPT%20Image%2018_02_2026%2C%2017_07_05.png";
 
 // Defaults
-export const DEFAULT_WATERLINE_NORM = 0.3075; // 0..1 relativo à ALTURA ORIGINAL da imagem
+export const DEFAULT_WATERLINE_NORM = 0.28; // 0..1 relativo à ALTURA ORIGINAL da imagem
 
 // ===============================
 // STATE
