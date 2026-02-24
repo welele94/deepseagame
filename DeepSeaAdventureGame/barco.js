@@ -47,7 +47,7 @@ export function createBoat(canvas) {
 
     // ponto onde a corda prende (normalizado no sprite)
     attachNormX: 0.55,
-    attachNormY: 0.78,
+    attachNormY: 0.38,
 
     // float configurável (positivo = sobe, negativo = desce)
     floatNorm: boatFloatNorm,
@@ -130,6 +130,6 @@ export function drawBoat(ctx, canvas, boat, tSec, waterlineNorm) {
 export function getBoatAnchor(boat) {
   return {
     x: boat.screenX + boat.screenW * (boat.attachNormX ?? 0.55),
-    y: boat.screenY + boat.screenH * (boat.attachNormY ?? 0.78),
+    y: boat.screenY + boat.screenH * (boat.attachNormY ?? 0.08),
   };
 }

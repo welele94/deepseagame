@@ -1,16 +1,35 @@
 // ===============================
+// GUSTAVO (asset) - exportado
+// ===============================
+export const GUSTAVO_SRC =
+  "https://raw.githubusercontent.com/welele94/deepseagame/main/ChatGPT%20Image%2024_02_2026%2C%2013_43_56.png";
+
+function loadImage(src, label = "IMG") {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () =>
+    console.log(`${label} loaded:`, img.naturalWidth, img.naturalHeight);
+  img.onerror = (e) => console.error(`${label} failed to load:`, src, e);
+  img.src = src;
+  return img;
+}
+
+// Export: o main.js vai usar isto
+export const gustavoImg = loadImage(GUSTAVO_SRC, "Gustavo");
+
+// ===============================
 // ROPE (Verlet + Constraints) - Gustavo é o último nó
 // ===============================
 export class Rope {
-  constructor({ segments = 25, ropeLength = 500, iterations = 10 } = {}) {
+  constructor({ segments = 45, ropeLength = 500, iterations = 25 } = {}) {
     this.segments = segments;
     this.ropeLength = ropeLength;
     this.segLen = ropeLength / segments;
     this.iterations = iterations;
 
     this.points = [];
-    this.gravity = 900;      // como o Gustavo “nada”, baixa gravidade
-    this.damping = 0.995;
+    this.damping = 0.040; // arrasto
+    this.gravity = 40000;
 
     this.tension = 0;
     this.tensionSmoothed = 0;
@@ -32,8 +51,8 @@ export class Rope {
 
     // Gustavo começa junto ao barco
     const d = this.points[this.points.length - 1];
-    d.x = ax;
-    d.y = ay + 18;
+    d.x = ax - 108;
+    d.y = ay - 48;
     d.px = d.x;
     d.py = d.y;
   }
@@ -46,12 +65,12 @@ export class Rope {
     let vx = (d.x - d.px) * this.damping;
     let vy = (d.y - d.py) * this.damping;
 
-    // ✅ input como aceleração -> velocidade (dt)
+    // input como aceleração -> velocidade (dt)
     vx += (ctrl.ax || 0) * dt;
     vy += (ctrl.ay || 0) * dt;
 
     // clamp opcional (evita foguete)
-    const maxV = 1; // px/frame approx (ajusta)
+    const maxV = 1; // px/frame approx
     vx = Math.max(-maxV, Math.min(maxV, vx));
     vy = Math.max(-maxV, Math.min(maxV, vy));
 
@@ -83,21 +102,26 @@ export class Rope {
     }
   }
 
-  step(dt, getAnchor, ctrl = { ax: 0, ay: 0 }, extraDownForce = 0, limits = null) {
+  step(
+    dt,
+    getAnchor,
+    ctrl = { ax: 0, ay: 0 },
+    extraDownForce = 0,
+    limits = null
+  ) {
     if (this.broken) return;
     if (!this.points.length) return;
 
     const { x: ax, y: ay } = getAnchor();
-
     const lastIndex = this.points.length - 1;
 
     // 1) Integrate: todos menos o nó 0 (boat) e (opcionalmente) o Gustavo
     for (let i = 0; i < this.points.length; i++) {
       const p = this.points[i];
-      const isEnd = (i === lastIndex);
+      const isEnd = i === lastIndex;
 
       if (p.pinned) continue;
-      if (this.endPinned && isEnd) continue; // Gustavo controlado, não pela gravidade
+      if (this.endPinned && isEnd) continue; // Gustavo não leva gravidade
 
       const vx = (p.x - p.px) * this.damping;
       const vy = (p.y - p.py) * this.damping;
@@ -120,18 +144,21 @@ export class Rope {
     // 4) Solver: constraints de comprimento fixo entre nós
     let tensionAccum = 0;
 
-    // vamos “pin” o Gustavo durante o solver
+    // pin Gustavo durante o solver
     const d = this.points[lastIndex];
-    const dx0 = d.x, dy0 = d.y;
+    const dx0 = d.x,
+      dy0 = d.y;
 
     for (let it = 0; it < this.iterations; it++) {
       // pin boat
       const p0 = this.points[0];
-      p0.x = ax; p0.y = ay;
+      p0.x = ax;
+      p0.y = ay;
 
-      // pin gustavo (end)
+      // pin gustavo
       if (this.endPinned) {
-        d.x = dx0; d.y = dy0;
+        d.x = dx0;
+        d.y = dy0;
       }
 
       for (let i = 0; i < this.points.length - 1; i++) {
@@ -150,19 +177,22 @@ export class Rope {
         const corrY = dy * diff;
 
         const aPinned = a.pinned;
-        const bPinned = (i + 1 === lastIndex) ? this.endPinned : false;
+        const bPinned = i + 1 === lastIndex ? this.endPinned : false;
 
         if (!aPinned && !bPinned) {
-          a.x += corrX * 0.5; a.y += corrY * 0.5;
-          b.x -= corrX * 0.5; b.y -= corrY * 0.5;
+          a.x += corrX * 0.5;
+          a.y += corrY * 0.5;
+          b.x -= corrX * 0.5;
+          b.y -= corrY * 0.5;
         } else if (!aPinned && bPinned) {
-          a.x += corrX; a.y += corrY;
+          a.x += corrX;
+          a.y += corrY;
         } else if (aPinned && !bPinned) {
-          b.x -= corrX; b.y -= corrY;
+          b.x -= corrX;
+          b.y -= corrY;
         }
       }
 
-      // mantém a regra da waterline estável
       this.applyWaterlineRule(limits);
     }
 
@@ -183,7 +213,8 @@ export class Rope {
     ctx.strokeStyle = "#111";
     ctx.beginPath();
     ctx.moveTo(this.points[0].x, this.points[0].y);
-    for (let i = 1; i < this.points.length; i++) ctx.lineTo(this.points[i].x, this.points[i].y);
+    for (let i = 1; i < this.points.length; i++)
+      ctx.lineTo(this.points[i].x, this.points[i].y);
     ctx.stroke();
     ctx.restore();
   }

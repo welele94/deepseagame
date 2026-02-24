@@ -46,6 +46,22 @@ export function loadImage(src, label = "IMG") {
   return img;
 }
 
+export function screenToImage(sx, sy) {
+  const r = bg.lastRect;
+  if (!r) return { ix: 0, iy: 0 };
+
+  // r.x / r.y = topo-esquerdo onde a imagem (ou crop) está desenhada no canvas
+  // r.scale = pixels screen por 1 pixel de imagem
+  // r.ix0 / r.iy0 (ou parecido) pode existir dependendo do teu código de camera/crop
+  const ix0 = r.ix0 ?? r.ix ?? 0;
+  const iy0 = r.iy0 ?? r.iy ?? 0;
+
+  return {
+    ix: ix0 + (sx - r.x) / r.scale,
+    iy: iy0 + (sy - r.y) / r.scale,
+  };
+}
+
 // ===============================
 // BACKGROUND CLASS (camera-driven)
 // ===============================
