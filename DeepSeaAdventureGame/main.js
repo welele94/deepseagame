@@ -13,6 +13,9 @@ import { computeIsMobile } from "./background.js";
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+let gustVxSm = 0;
+let gustVySm = 0;
+let gustRot = 0;
 
 let playerForCamera = null;
 setupResize(canvas, ctx);
@@ -98,20 +101,41 @@ canvas.addEventListener("pointercancel", endPointer, { passive: false });
 // ===============================
 // RENDER: GUSTAVO (último nó da rope)
 // ===============================
-function drawGustavo(ctx, rope, img) {
+function drawGustavo(ctx, rope, img, dt) {
   if (!img?.naturalWidth) return;
 
-  const { x, y, vx, vy } = rope.getDiverPos();
+  const { x, y, vx, vy } = rope.getDiverPos(); // vx/vy = px/frame
   const size = rope.segLen * 16;
   const offX = 0;
   const offY = 8;
 
-  const speed2 = vx * vx + vy * vy;
-  const rot = speed2 > 0.0001 ? Math.atan2(vy, vx) + Math.PI / 2 : 0;
+  // converter para px/s com dtSafe
+  const dtSafe = Math.max(dt, 1 / 60);
+  const vxs = vx / dtSafe;
+  const vys = vy / dtSafe;
+
+  // suavização (low-pass)
+  const ALPHA = 0.18; // 0.10..0.25 (maior = mais responsivo)
+  gustVxSm += (vxs - gustVxSm) * ALPHA;
+  gustVySm += (vys - gustVySm) * ALPHA;
+
+  const speed2 = gustVxSm * gustVxSm + gustVySm * gustVySm;
+
+  // só roda se estiver mesmo a mover (evita jitter a rodar no lugar)
+  if (speed2 > 40 * 40) {
+    const targetRot = Math.atan2(gustVySm, gustVxSm) + Math.PI / 2;
+
+    // suaviza o ângulo também (evita flips bruscos)
+    const ROT_ALPHA = 0.22;
+    // lerp angular simples
+    let diff = targetRot - gustRot;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // normaliza para [-pi, pi]
+    gustRot += diff * ROT_ALPHA;
+  }
 
   ctx.save();
   ctx.translate(x + offX, y + offY);
-  ctx.rotate(rot);
+  ctx.rotate(gustRot);
   ctx.drawImage(img, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
@@ -245,8 +269,8 @@ function loop(now) {
     rope.draw(ctx);
 
     // desenhar Gustavo (último nó)
-    drawGustavo(ctx, rope, gustavoImg);
-  }
+  drawGustavo(ctx, rope, gustavoImg, dt);  
+}
 
   // ===============================
   // DEBUG
