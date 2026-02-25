@@ -17,6 +17,9 @@ const ctx = canvas.getContext("2d");
 let playerForCamera = null;
 setupResize(canvas, ctx);
 
+// impede scroll/pinch e estabiliza input mobile
+canvas.style.touchAction = "none";
+
 // ===============================
 // INPUT (KEYS)
 // ===============================
@@ -39,74 +42,58 @@ let lootWeight = 0; // depois aumentas quando apanhar loot
 let last = performance.now();
 
 // ===============================
-// TOUCH (MOBILE)
+// POINTER (MOBILE) — state-based
 // ===============================
-let touchActive = false;
-let touchId = null;
-let touchTarget = { x: 0, y: 0 };
+const pointer = {
+  active: false,
+  id: null,
+  target: { x: 0, y: 0 }, // em coords do canvas (CSS px)
+};
 
-function setTouchTarget(clientX, clientY) {
+function setPointerTarget(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
-  touchTarget.x = clientX - r.left;
-  touchTarget.y = clientY - r.top;
+  pointer.target.x = clientX - r.left;
+  pointer.target.y = clientY - r.top;
 }
 
 canvas.addEventListener(
-  "touchstart",
+  "pointerdown",
   (e) => {
     if (!computeIsMobile(canvas)) return;
-    e.preventDefault();
+    if (e.pointerType !== "touch") return;
 
-    const t = e.changedTouches[0];
-    touchActive = true;
-    touchId = t.identifier;
-    setTouchTarget(t.clientX, t.clientY);
+    e.preventDefault();
+    pointer.active = true;
+    pointer.id = e.pointerId;
+    setPointerTarget(e.clientX, e.clientY);
   },
   { passive: false }
 );
 
 canvas.addEventListener(
-  "touchmove",
+  "pointermove",
   (e) => {
     if (!computeIsMobile(canvas)) return;
-    if (!touchActive) return;
+    if (!pointer.active) return;
+    if (e.pointerId !== pointer.id) return;
+
     e.preventDefault();
-
-    const t =
-      [...e.touches].find((tt) => tt.identifier === touchId) ||
-      [...e.changedTouches].find((tt) => tt.identifier === touchId);
-    if (!t) return;
-
-    setTouchTarget(t.clientX, t.clientY);
+    setPointerTarget(e.clientX, e.clientY);
   },
   { passive: false }
 );
 
-canvas.addEventListener(
-  "touchend",
-  (e) => {
-    if (!computeIsMobile(canvas)) return;
+function endPointer(e) {
+  if (!computeIsMobile(canvas)) return;
+  if (e.pointerId !== pointer.id) return;
 
-    const ended = [...e.changedTouches].some((t) => t.identifier === touchId);
-    if (!ended) return;
+  e.preventDefault();
+  pointer.active = false;
+  pointer.id = null;
+}
 
-    e.preventDefault();
-    touchActive = false;
-    touchId = null;
-  },
-  { passive: false }
-);
-
-canvas.addEventListener(
-  "touchcancel",
-  (e) => {
-    if (!computeIsMobile(canvas)) return;
-    e.preventDefault();
-    touchActive = false;
-    touchId = null;
-  },
-  { passive: false }
-);
+canvas.addEventListener("pointerup", endPointer, { passive: false });
+canvas.addEventListener("pointercancel", endPointer, { passive: false });
 
 // ===============================
 // RENDER: GUSTAVO (último nó da rope)
@@ -115,14 +102,12 @@ function drawGustavo(ctx, rope, img) {
   if (!img?.naturalWidth) return;
 
   const { x, y, vx, vy } = rope.getDiverPos();
-const size = rope.segLen * 16;
+  const size = rope.segLen * 16;
   const offX = 0;
   const offY = 8;
 
   const speed2 = vx * vx + vy * vy;
-  const rot = speed2 > 0.0001
-    ? Math.atan2(vy, vx) + Math.PI / 2
-    : 0;
+  const rot = speed2 > 0.0001 ? Math.atan2(vy, vx) + Math.PI / 2 : 0;
 
   ctx.save();
   ctx.translate(x + offX, y + offY);
@@ -171,11 +156,11 @@ function loop(now) {
     rope.initAtAnchor(a.x, a.y);
     ropeInited = true;
 
-    // init target do touch
+    // init target do pointer
     const d0 = rope.getDiverPos();
-    touchTarget.x = d0.x;
-    touchTarget.y = d0.y;
-    touchActive = false;
+    pointer.target.x = d0.x;
+    pointer.target.y = d0.y;
+    pointer.active = false;
   }
 
   // ===============================
@@ -185,38 +170,45 @@ function loop(now) {
 
   if (computeIsMobile(canvas)) {
     // mobile: “segue o dedo”
-    if (!touchActive || !ropeInited) {
-      ctrl.ax = 0;
-      ctrl.ay = 0;
-    } else if (dt < 0.01) {
+    if (!pointer.active || !ropeInited) {
       ctrl.ax = 0;
       ctrl.ay = 0;
     } else {
       const d = rope.getDiverPos();
-      const dx = touchTarget.x - d.x;
-      const dy = touchTarget.y - d.y;
+
+      const dx = pointer.target.x - d.x;
+      const dy = pointer.target.y - d.y;
       const dist = Math.hypot(dx, dy) || 1;
 
-      const MAX_SPEED = 90; // px/s
-      const SLOW_RADIUS = 180;
-      const speed = MAX_SPEED * Math.min(1, dist / SLOW_RADIUS);
+      // deadzone pequena para não “vibrar”
+      const DEAD = 10;
+      if (dist < DEAD) {
+        ctrl.ax = 0;
+        ctrl.ay = 0;
+      } else {
+        const MAX_SPEED = 90; // px/s
+        const SLOW_RADIUS = 180;
+        const speed = MAX_SPEED * Math.min(1, dist / SLOW_RADIUS);
 
-      const dirX = dx / dist;
-      const dirY = dy / dist;
+        const dirX = dx / dist;
+        const dirY = dy / dist;
 
-      const desiredVx = dirX * speed;
-      const desiredVy = dirY * speed;
+        const desiredVx = dirX * speed;
+        const desiredVy = dirY * speed;
 
-      const vCurX = d.vx / dt;
-      const vCurY = d.vy / dt;
+        // ✅ FIX: NÃO dividir por dt
+        // assume que d.vx/d.vy já estão em px/s (ou pelo menos coerentes por frame)
+        const vCurX = d.vx;
+        const vCurY = d.vy;
 
-      const GAIN = 4;
-      ctrl.ax = (desiredVx - vCurX) * GAIN;
-      ctrl.ay = (desiredVy - vCurY) * GAIN;
+        const GAIN = 6; // um bocadinho mais responsivo (ajusta 4..10)
+        ctrl.ax = (desiredVx - vCurX) * GAIN;
+        ctrl.ay = (desiredVy - vCurY) * GAIN;
 
-      const MAX_ACCEL = 450;
-      ctrl.ax = Math.max(-MAX_ACCEL, Math.min(MAX_ACCEL, ctrl.ax));
-      ctrl.ay = Math.max(-MAX_ACCEL, Math.min(MAX_ACCEL, ctrl.ay));
+        const MAX_ACCEL = 450;
+        ctrl.ax = Math.max(-MAX_ACCEL, Math.min(MAX_ACCEL, ctrl.ax));
+        ctrl.ay = Math.max(-MAX_ACCEL, Math.min(MAX_ACCEL, ctrl.ay));
+      }
     }
   } else {
     // desktop: teclado (WASD / setas)
@@ -250,7 +242,7 @@ function loop(now) {
     rope.draw(ctx);
 
     // desenhar Gustavo (último nó)
-    drawGustavo(ctx, rope, gustavoImg);  
+    drawGustavo(ctx, rope, gustavoImg);
   }
 
   // ===============================
@@ -260,14 +252,11 @@ function loop(now) {
   ctx.fillStyle = "#111";
   ctx.font = "14px Arial";
   ctx.fillText(
-    `tension: ${rope.tensionSmoothed.toFixed(1)} ${
-      rope.broken ? "BROKE" : ""
-    }`,
+    `tension: ${rope.tensionSmoothed.toFixed(1)} ${rope.broken ? "BROKE" : ""}`,
     10,
     20
   );
   ctx.restore();
-
 
   requestAnimationFrame(loop);
 }
