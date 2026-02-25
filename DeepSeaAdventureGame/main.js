@@ -175,33 +175,36 @@ function loop(now) {
       ctrl.ay = 0;
     } else {
       const d = rope.getDiverPos();
-
       const dx = pointer.target.x - d.x;
       const dy = pointer.target.y - d.y;
       const dist = Math.hypot(dx, dy) || 1;
 
-      // deadzone pequena para não “vibrar”
       const DEAD = 10;
       if (dist < DEAD) {
         ctrl.ax = 0;
         ctrl.ay = 0;
       } else {
-        const MAX_SPEED = 90; // px/s
+        const MAX_SPEED = 90;     // px/s
         const SLOW_RADIUS = 180;
-        const speed = MAX_SPEED * Math.min(1, dist / SLOW_RADIUS);
 
+        const speed = MAX_SPEED * Math.min(1, dist / SLOW_RADIUS);
         const dirX = dx / dist;
         const dirY = dy / dist;
 
-        const desiredVx = dirX * speed;
-        const desiredVy = dirY * speed;
+        const desiredVx = dirX * speed; // px/s
+        const desiredVy = dirY * speed; // px/s
 
-        // ✅ FIX: NÃO dividir por dt
-        // assume que d.vx/d.vy já estão em px/s (ou pelo menos coerentes por frame)
-        const vCurX = d.vx;
-        const vCurY = d.vy;
+        // ✅ d.vx é px/frame, logo -> px/s = (px/frame) / dt
+        const dtSafe = Math.max(dt, 1 / 60); // nunca uses dt minúsculo
+        let vCurX = d.vx / dtSafe;
+        let vCurY = d.vy / dtSafe;
 
-        const GAIN = 6; // um bocadinho mais responsivo (ajusta 4..10)
+        // clamp para evitar picos absurdos por jitter/frames estranhos
+        const VCLAMP = 600; // px/s
+        vCurX = Math.max(-VCLAMP, Math.min(VCLAMP, vCurX));
+        vCurY = Math.max(-VCLAMP, Math.min(VCLAMP, vCurY));
+
+        const GAIN = 4; // 3..6
         ctrl.ax = (desiredVx - vCurX) * GAIN;
         ctrl.ay = (desiredVy - vCurY) * GAIN;
 
