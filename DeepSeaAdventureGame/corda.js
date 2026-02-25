@@ -101,6 +101,13 @@ export class Rope {
       d.py = d.y; // mata bounce vertical
     }
   }
+  
+  offsetAll(dx, dy) {
+  for (const p of this.points) {
+    p.x += dx;  p.y += dy;
+    p.px += dx; p.py += dy; // importante: também no previous para não criar velocidade
+  }
+}
 
   step(
     dt,

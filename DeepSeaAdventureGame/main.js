@@ -7,15 +7,18 @@ import {
   screenToImage,
 } from "./background.js";
 
+import { drawBarsHUD } from "./hud.js";
 import { createBoat, drawBoat, getBoatAnchor } from "./barco.js";
 import { Rope, gustavoImg } from "./corda.js";
 import { computeIsMobile } from "./background.js";
+import { ObjectSpawner } from "./objectSpawner.js";
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 let gustVxSm = 0;
 let gustVySm = 0;
 let gustRot = 0;
+let prevRect = null;
 
 let playerForCamera = null;
 setupResize(canvas, ctx);
@@ -30,6 +33,75 @@ const keys = {};
 window.addEventListener("keydown", (e) => (keys[e.key.toLowerCase()] = true));
 window.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
 
+const spawner = new ObjectSpawner({
+  maxActive: 16,
+  spawnEverySec: 0.85,
+  aheadMin: 240,
+  aheadMax: 900,
+  xMin: -220,
+  xMax: 220,
+});
+
+
+// ===============================
+// PLAYER STATS
+// ===============================
+
+export const stats = {
+  maxOxygen: 100,
+  oxygen: 100,
+
+  maxLife: 100,
+  life: 100,
+
+  lastBreath: false,
+  lastBreathTimer: 0
+};
+
+export function updateOxygen(dt, depth, lootWeight) {
+  // valores base (ajustamos depois)
+  const baseDrain = 4.5;              // por segundo
+  const depthDrain = depth * 0.0012;  // depth em px -> tuning
+  const weightDrain = lootWeight * 0.03;
+
+  if (!stats.lastBreath) {
+    stats.oxygen -= (baseDrain + depthDrain + weightDrain) * dt;
+
+    if (stats.oxygen <= 0) {
+      stats.oxygen = 0;
+      stats.lastBreath = true;
+      stats.lastBreathTimer = 2.0; // janela para salvar
+    }
+  } else {
+    stats.lastBreathTimer -= dt;
+    if (stats.lastBreathTimer <= 0) {
+      // morrer por oxigénio
+      stats.life = 0;
+    }
+  }
+}
+
+export function recoverAtSurface() {
+  // se estava em último fôlego, salva e volta com um restinho
+  if (stats.lastBreath) {
+    stats.lastBreath = false;
+    stats.lastBreathTimer = 0;
+    stats.oxygen = 8; // “gasp” (ajustável)
+  } else {
+    stats.oxygen = stats.maxOxygen;
+  }
+}
+export function damage(amount) {
+  stats.life = Math.max(0, stats.life - amount);
+}
+
+export function heal(amount) {
+  stats.life = Math.min(stats.maxLife, stats.life + amount);
+}
+
+export function isDead() {
+  return stats.life <= 0;
+}
 // ===============================
 // WORLD INIT
 // ===============================
@@ -163,8 +235,26 @@ function loop(now) {
 
   // mundo
   bg.draw(ctx, canvas);
-  drawBoat(ctx, canvas, boat, tSec, waterlineNorm);
+  // ===============================
+// CAMERA COMPENSATION (anti energy injection)
+// ===============================
+  if (ropeInited && bg.lastRect) {
+    if (prevRect) {
+      const dxCam = bg.lastRect.x - prevRect.x;
+      const dyCam = bg.lastRect.y - prevRect.y;
 
+      // se a câmara moveu, move a rope junto (anula impulso fantasma)
+      if (dxCam || dyCam) {
+        rope.offsetAll(dxCam, dyCam);
+      }
+    }
+    prevRect = { x: bg.lastRect.x, y: bg.lastRect.y };
+  }
+  drawBoat(ctx, canvas, boat, tSec, waterlineNorm);
+  drawBarsHUD(ctx, canvas, {
+    oxygen01: stats.oxygen / stats.maxOxygen,
+    life01: stats.life / stats.maxLife,
+  });
   // atualizar target da camera com base no diver (last node)
   if (ropeInited && bg.lastRect) {
     const d = rope.getDiverPos();
@@ -270,7 +360,14 @@ function loop(now) {
 
     // desenhar Gustavo (último nó)
   drawGustavo(ctx, rope, gustavoImg, dt);  
-}
+} 
+// player: precisa de x e y/depth
+  spawner.update(dt, player, null);
+
+  // desenhar objetos
+  for (const o of spawner.active) {
+    drawLoot(o); // tu implementas (sprite ou círculo debug)
+  }
 
   // ===============================
   // DEBUG
