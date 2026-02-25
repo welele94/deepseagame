@@ -6,7 +6,7 @@ import { bg, computeIsMobile, loadImage, imageToScreen, getWaterlineIy } from ".
 // CONFIG
 // ===============================
 export const BOAT_SRC =
-  "https://cdn.jsdelivr.net/gh/welele94/deepseagame@main/boat.png.png"; // confirma o nome!
+  "https://raw.githubusercontent.com/welele94/deepseagame/main/DeepSeaAdventureGame/UI/boat.png.png"; // confirma o nome!
 
 export const DEFAULT_FLOAT_NORM = 0.03; // % da altura do sprite
 

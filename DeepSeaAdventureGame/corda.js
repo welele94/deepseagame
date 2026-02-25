@@ -2,7 +2,7 @@
 // GUSTAVO (asset) - exportado
 // ===============================
 export const GUSTAVO_SRC =
-  "https://raw.githubusercontent.com/welele94/deepseagame/main/ChatGPT%20Image%2024_02_2026%2C%2013_43_56.png";
+  "https://raw.githubusercontent.com/welele94/deepseagame/main/DeepSeaAdventureGame/UI/ChatGPT%20Image%2024_02_2026%2C%2013_43_56.png";
 
 function loadImage(src, label = "IMG") {
   const img = new Image();
