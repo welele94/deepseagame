@@ -1,37 +1,61 @@
 export function drawBarsHUD(ctx, canvas, state) {
   // state: { oxygen01, life01 }  // 0..1
   const W = canvas.clientWidth;
-  const pad = 14;
-  const barW = Math.min(260, W * 0.35);
-  const barH = 14;
-  const gap = 10;
+  const H = canvas.clientHeight;
 
-  drawBar(ctx, pad, pad, barW, barH, state.oxygen01, "O2");
-  drawBar(ctx, pad, pad + barH + gap, barW, barH, state.life01, "HP");
+  const margin = 20;
+  const gap = 20;
+
+  const pad = 14;
+  const barW = (W - margin * 2 - gap) / 2;
+  const barH = 18;
+
+  const x1 = margin;
+  const x2 = margin + barW + gap;
+  const y = 20;
+
+  drawSingleBar(ctx, x1, y, barW, barH, state.oxygen01,  "#3ec5ff", "Oxygen");
+  drawSingleBar(ctx, x2, y, barW, barH, state.life01,"#ff4d4d", "Health");
 }
 
-function drawBar(ctx, x, y, w, h, t, label) {
-  t = Math.max(0, Math.min(1, t));
+function drawSingleBar(ctx, x, y, w, h, value01, color, label) {
+  value01 = Math.max(0, Math.min(1, value01));
 
-  // bg
+  const r = Math.min(10, h / 2);
+  const pad = 2;                 // margem interna para o stroke não “comer” o fill
+  const strokeW = 2;
+
+  // alinhar stroke em pixels inteiros (reduz “brilho”/blur)
+  const ax = Math.round(x) + 0.5;
+  const ay = Math.round(y) + 0.5;
+
+  // --- BG (rounded) ---
   ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  roundRect(ctx, x, y, w, h, 8);
+  ctx.beginPath();
+  roundRect(ctx, ax, ay, w, h, r);
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.fill();
 
-  // fill
-  ctx.globalAlpha = 0.95;
-  ctx.fillStyle = "rgba(255,255,255,0.85)";
-  roundRect(ctx, x + 2, y + 2, (w - 4) * t, h - 4, 6);
-  ctx.fill();
-
-  // label
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = "white";
-  ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
-  ctx.fillText(`${label} ${(t * 100).toFixed(0)}%`, x + 8, y + h - 3);
+  // --- FILL (clipped dentro do rounded) ---
+  ctx.clip();
+  const innerW = Math.max(0, (w - pad * 2) * value01);
+  ctx.fillStyle = color;
+  ctx.fillRect(ax + pad, ay + pad, innerW, h - pad * 2);
   ctx.restore();
+
+  // --- STROKE (mesmo path, no fim) ---
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, ax, ay, w, h, r);
+  ctx.strokeStyle = "rgba(0,0,0,0.65)";
+  ctx.lineWidth = strokeW;
+  ctx.stroke();
+  ctx.restore();
+
+  // --- TEXTO ---
+  ctx.fillStyle = "black";
+  ctx.font = "12px sans-serif";
+  ctx.fillText(`${label} ${Math.round(value01 * 100)}%`, x, y - 6);
 }
 
 function roundRect(ctx, x, y, w, h, r) {

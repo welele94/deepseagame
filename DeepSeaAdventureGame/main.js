@@ -7,20 +7,22 @@ import {
   screenToImage,
 } from "./background.js";
 
+import { ObjectSpawner } from "./objectSpawner.js";
 import { drawBarsHUD } from "./hud.js";
 import { createBoat, drawBoat, getBoatAnchor } from "./barco.js";
 import { Rope, gustavoImg } from "./corda.js";
 import { computeIsMobile } from "./background.js";
-import { ObjectSpawner } from "./objectSpawner.js";
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+
 let gustVxSm = 0;
 let gustVySm = 0;
 let gustRot = 0;
 let prevRect = null;
 
 let playerForCamera = null;
+
 setupResize(canvas, ctx);
 
 // impede scroll/pinch e estabiliza input mobile
@@ -33,20 +35,25 @@ const keys = {};
 window.addEventListener("keydown", (e) => (keys[e.key.toLowerCase()] = true));
 window.addEventListener("keyup", (e) => (keys[e.key.toLowerCase()] = false));
 
+// ===============================
+// SPAWNER
+// ===============================
+// ⚠️ Para este teste, vamos considerar x/y em SCREEN coords.
+// Então xMin/xMax são em px do ecrã (centrado no canvas).
 const spawner = new ObjectSpawner({
-  maxActive: 16,
-  spawnEverySec: 0.85,
-  aheadMin: 240,
+  maxActive: 18,
+  spawnEverySec: 0.9,
+  spawnJitter: 0.35,
+  aheadMin: 220,
   aheadMax: 900,
-  xMin: -220,
-  xMax: 220,
+  xMin: -260,
+  xMax: 260,
+  avoidRadius: 120,
 });
-
 
 // ===============================
 // PLAYER STATS
 // ===============================
-
 export const stats = {
   maxOxygen: 100,
   oxygen: 100,
@@ -55,13 +62,12 @@ export const stats = {
   life: 100,
 
   lastBreath: false,
-  lastBreathTimer: 0
+  lastBreathTimer: 0,
 };
 
 export function updateOxygen(dt, depth, lootWeight) {
-  // valores base (ajustamos depois)
-  const baseDrain = 4.5;              // por segundo
-  const depthDrain = depth * 0.0012;  // depth em px -> tuning
+  const baseDrain = 4.5; // por segundo
+  const depthDrain = depth * 0.0012; // depth em px -> tuning
   const weightDrain = lootWeight * 0.03;
 
   if (!stats.lastBreath) {
@@ -70,27 +76,26 @@ export function updateOxygen(dt, depth, lootWeight) {
     if (stats.oxygen <= 0) {
       stats.oxygen = 0;
       stats.lastBreath = true;
-      stats.lastBreathTimer = 2.0; // janela para salvar
+      stats.lastBreathTimer = 2.0;
     }
   } else {
     stats.lastBreathTimer -= dt;
     if (stats.lastBreathTimer <= 0) {
-      // morrer por oxigénio
       stats.life = 0;
     }
   }
 }
 
 export function recoverAtSurface() {
-  // se estava em último fôlego, salva e volta com um restinho
   if (stats.lastBreath) {
     stats.lastBreath = false;
     stats.lastBreathTimer = 0;
-    stats.oxygen = 8; // “gasp” (ajustável)
+    stats.oxygen = 8;
   } else {
     stats.oxygen = stats.maxOxygen;
   }
 }
+
 export function damage(amount) {
   stats.life = Math.max(0, stats.life - amount);
 }
@@ -102,6 +107,7 @@ export function heal(amount) {
 export function isDead() {
   return stats.life <= 0;
 }
+
 // ===============================
 // WORLD INIT
 // ===============================
@@ -112,7 +118,7 @@ const rope = new Rope({ segments: 25, ropeLength: 320, iterations: 10 });
 let ropeInited = false;
 
 // gameplay
-let lootWeight = 0; // depois aumentas quando apanhar loot
+let lootWeight = 0;
 
 let last = performance.now();
 
@@ -122,7 +128,7 @@ let last = performance.now();
 const pointer = {
   active: false,
   id: null,
-  target: { x: 0, y: 0 }, // em coords do canvas (CSS px)
+  target: { x: 0, y: 0 },
 };
 
 function setPointerTarget(clientX, clientY) {
@@ -176,32 +182,27 @@ canvas.addEventListener("pointercancel", endPointer, { passive: false });
 function drawGustavo(ctx, rope, img, dt) {
   if (!img?.naturalWidth) return;
 
-  const { x, y, vx, vy } = rope.getDiverPos(); // vx/vy = px/frame
+  const { x, y, vx, vy } = rope.getDiverPos();
   const size = rope.segLen * 16;
   const offX = 0;
   const offY = 8;
 
-  // converter para px/s com dtSafe
   const dtSafe = Math.max(dt, 1 / 60);
   const vxs = vx / dtSafe;
   const vys = vy / dtSafe;
 
-  // suavização (low-pass)
-  const ALPHA = 0.18; // 0.10..0.25 (maior = mais responsivo)
+  const ALPHA = 0.18;
   gustVxSm += (vxs - gustVxSm) * ALPHA;
   gustVySm += (vys - gustVySm) * ALPHA;
 
   const speed2 = gustVxSm * gustVxSm + gustVySm * gustVySm;
 
-  // só roda se estiver mesmo a mover (evita jitter a rodar no lugar)
   if (speed2 > 40 * 40) {
     const targetRot = Math.atan2(gustVySm, gustVxSm) + Math.PI / 2;
 
-    // suaviza o ângulo também (evita flips bruscos)
     const ROT_ALPHA = 0.22;
-    // lerp angular simples
     let diff = targetRot - gustRot;
-    diff = Math.atan2(Math.sin(diff), Math.cos(diff)); // normaliza para [-pi, pi]
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
     gustRot += diff * ROT_ALPHA;
   }
 
@@ -209,6 +210,37 @@ function drawGustavo(ctx, rope, img, dt) {
   ctx.translate(x + offX, y + offY);
   ctx.rotate(gustRot);
   ctx.drawImage(img, -size / 2, -size / 2, size, size);
+  ctx.restore();
+}
+
+// ===============================
+// LOOT DRAW (DEBUG)
+// ===============================
+function drawLoot(o) {
+  // ✅ spawner agora está a gerar x/y relativos ao player em screen coords.
+  // Vamos renderizar como screen coords.
+  const x = o.x ?? 0;
+  const y = o.y ?? 0;
+  const r = o.radius ?? 12;
+
+  ctx.save();
+  ctx.globalAlpha = 0.95;
+
+  // círculo debug
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 215, 0, 0.85)";
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.stroke();
+
+  // label S/M/L
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(o.size ?? "?", x, y - r - 6);
+
   ctx.restore();
 }
 
@@ -235,42 +267,32 @@ function loop(now) {
 
   // mundo
   bg.draw(ctx, canvas);
+
   // ===============================
-// CAMERA COMPENSATION (anti energy injection)
-// ===============================
+  // CAMERA COMPENSATION (anti energy injection)
+  // ===============================
   if (ropeInited && bg.lastRect) {
     if (prevRect) {
       const dxCam = bg.lastRect.x - prevRect.x;
       const dyCam = bg.lastRect.y - prevRect.y;
 
-      // se a câmara moveu, move a rope junto (anula impulso fantasma)
       if (dxCam || dyCam) {
         rope.offsetAll(dxCam, dyCam);
       }
     }
     prevRect = { x: bg.lastRect.x, y: bg.lastRect.y };
   }
-  drawBoat(ctx, canvas, boat, tSec, waterlineNorm);
-  drawBarsHUD(ctx, canvas, {
-    oxygen01: stats.oxygen / stats.maxOxygen,
-    life01: stats.life / stats.maxLife,
-  });
-  // atualizar target da camera com base no diver (last node)
-  if (ropeInited && bg.lastRect) {
-    const d = rope.getDiverPos();
-    const pImg = screenToImage(d.x, d.y);
-    playerForCamera = { ix: pImg.ix, iy: pImg.iy };
-  } else {
-    playerForCamera = null;
-  }
 
-  // init rope quando já temos rect real do barco
+  drawBoat(ctx, canvas, boat, tSec, waterlineNorm);
+
+  // ===============================
+  // INIT ROPE quando já temos rect real do barco
+  // ===============================
   if (!ropeInited && boat.screenW > 0) {
     const a = getBoatAnchor(boat);
     rope.initAtAnchor(a.x, a.y);
     ropeInited = true;
 
-    // init target do pointer
     const d0 = rope.getDiverPos();
     pointer.target.x = d0.x;
     pointer.target.y = d0.y;
@@ -283,7 +305,6 @@ function loop(now) {
   const ctrl = { ax: 0, ay: 0 };
 
   if (computeIsMobile(canvas)) {
-    // mobile: “segue o dedo”
     if (!pointer.active || !ropeInited) {
       ctrl.ax = 0;
       ctrl.ay = 0;
@@ -298,27 +319,25 @@ function loop(now) {
         ctrl.ax = 0;
         ctrl.ay = 0;
       } else {
-        const MAX_SPEED = 90;     // px/s
+        const MAX_SPEED = 90;
         const SLOW_RADIUS = 180;
 
         const speed = MAX_SPEED * Math.min(1, dist / SLOW_RADIUS);
         const dirX = dx / dist;
         const dirY = dy / dist;
 
-        const desiredVx = dirX * speed; // px/s
-        const desiredVy = dirY * speed; // px/s
+        const desiredVx = dirX * speed;
+        const desiredVy = dirY * speed;
 
-        // ✅ d.vx é px/frame, logo -> px/s = (px/frame) / dt
-        const dtSafe = Math.max(dt, 1 / 60); // nunca uses dt minúsculo
+        const dtSafe = Math.max(dt, 1 / 60);
         let vCurX = d.vx / dtSafe;
         let vCurY = d.vy / dtSafe;
 
-        // clamp para evitar picos absurdos por jitter/frames estranhos
-        const VCLAMP = 600; // px/s
+        const VCLAMP = 600;
         vCurX = Math.max(-VCLAMP, Math.min(VCLAMP, vCurX));
         vCurY = Math.max(-VCLAMP, Math.min(VCLAMP, vCurY));
 
-        const GAIN = 4; // 3..6
+        const GAIN = 4;
         ctrl.ax = (desiredVx - vCurX) * GAIN;
         ctrl.ay = (desiredVy - vCurY) * GAIN;
 
@@ -328,7 +347,6 @@ function loop(now) {
       }
     }
   } else {
-    // desktop: teclado (WASD / setas)
     const SWIM_DESKTOP = 1200;
     if (keys["a"] || keys["arrowleft"]) ctrl.ax -= SWIM_DESKTOP;
     if (keys["d"] || keys["arrowright"]) ctrl.ax += SWIM_DESKTOP;
@@ -346,7 +364,6 @@ function loop(now) {
     margin: 2,
   };
 
-  // peso extra (exemplo simples)
   const extraDownForce = lootWeight * 10;
 
   // ===============================
@@ -354,29 +371,69 @@ function loop(now) {
   // ===============================
   if (ropeInited) {
     rope.step(dt, () => getBoatAnchor(boat), ctrl, extraDownForce, limits);
-
-    // desenhar corda
     rope.draw(ctx);
-
-    // desenhar Gustavo (último nó)
-  drawGustavo(ctx, rope, gustavoImg, dt);  
-} 
-// player: precisa de x e y/depth
-  spawner.update(dt, player, null);
-
-  // desenhar objetos
-  for (const o of spawner.active) {
-    drawLoot(o); // tu implementas (sprite ou círculo debug)
+    drawGustavo(ctx, rope, gustavoImg, dt);
   }
 
   // ===============================
-  // DEBUG
+  // PLAYER OBJ (para o spawner)
   // ===============================
+  let player = null;
+  if (ropeInited) {
+    const d = rope.getDiverPos(); // screen coords
+    const pImg = screenToImage(d.x, d.y); // image coords
+
+    const bgH = bg?.img?.naturalHeight || 1;
+    const waterYImg = waterlineNorm * bgH;
+
+    player = {
+      // ✅ SCREEN (para este teste do spawner)
+      x: d.x,
+      y: d.y,
+
+      // ✅ IMAGE (vai ser útil já já quando mudarmos p/ pontos fixos)
+      ix: pImg.ix,
+      iy: pImg.iy,
+
+      // depth em px abaixo da waterline (na imagem)
+      depth: Math.max(0, pImg.iy - waterYImg),
+    };
+  }
+
+  // ===============================
+  // SPAWNER UPDATE + DRAW (✅ só UMA vez)
+  // ===============================
+  if (player) {
+    spawner.update(dt, player, null);
+  }
+
+  for (const o of spawner.active) {
+    drawLoot(o);
+  }
+
+  // HUD
+  drawBarsHUD(ctx, canvas, {
+    oxygen01: stats.oxygen / stats.maxOxygen,
+    life01: stats.life / stats.maxLife,
+  });
+
+  // atualizar target da camera com base no diver (last node)
+  if (ropeInited && bg.lastRect) {
+    const d = rope.getDiverPos();
+    const pImg = screenToImage(d.x, d.y);
+    playerForCamera = { ix: pImg.ix, iy: pImg.iy };
+  } else {
+    playerForCamera = null;
+  }
+
+  // DEBUG
   ctx.save();
   ctx.fillStyle = "#111";
   ctx.font = "14px Arial";
   ctx.fillText(
-    `tension: ${rope.tensionSmoothed.toFixed(1)} ${rope.broken ? "BROKE" : ""}`,
+    `loot: ${spawner.active.length}  tension: ${rope.tensionSmoothed.toFixed(1)} ${
+      rope.broken ? "BROKE" : ""
+    }`,
     10,
     20
   );
