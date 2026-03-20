@@ -15,6 +15,35 @@ import { computeIsMobile } from "./background.js";
 
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
+const spawnPoints = generateSpawnPoints({
+  count: 10,
+  minU: 0.05,
+  maxU: 0.95,
+  minV: 0.58,
+  maxV: 0.96,
+});
+
+
+
+// ===============================
+// LOOT IMAGE CACHE
+// ===============================
+const lootImgCache = new Map();
+
+function getLootImg(src) {
+  if (!src) return null;
+
+  if (lootImgCache.has(src)) {
+    return lootImgCache.get(src);
+  }
+
+  const img = new Image();
+  img.src = src;
+
+  lootImgCache.set(src, img);
+
+  return img;
+}
 
 let gustVxSm = 0;
 let gustVySm = 0;
@@ -24,6 +53,58 @@ let prevRect = null;
 let playerForCamera = null;
 
 setupResize(canvas, ctx);
+
+function generateSpawnPoints({
+  count = 40,
+  minU = 0.05,
+  maxU = 0.95,
+  minV = 0.55,
+  maxV = 0.95,
+  minDist = 0.06,
+  rng = Math.random,
+} = {}) {
+  const points = [];
+  let tries = 0;
+  const maxTries = count * 30;
+
+  while (points.length < count && tries < maxTries) {
+    tries++;
+
+    const u = minU + (maxU - minU) * rng();
+    const v = minV + (maxV - minV) * rng();
+
+    let ok = true;
+    for (const p of points) {
+      const du = p.u - u;
+      const dv = p.v - v;
+      if (du * du + dv * dv < minDist * minDist) {
+        ok = false;
+        break;
+      }
+    }
+
+    if (ok) points.push({ u, v });
+  }
+
+  return points;
+}
+
+function imageUVToScreen(u, v) {
+  if (!bg.img || !bg.lastRect) return null;
+
+  const imgW = bg.img.naturalWidth;
+  const imgH = bg.img.naturalHeight;
+
+  const ix = u * imgW;
+  const iy = v * imgH;
+
+  return {
+    x: bg.lastRect.x + ix * bg.lastRect.w / imgW,
+    y: bg.lastRect.y + iy * bg.lastRect.h / imgH,
+    ix,
+    iy,
+  };
+}
 
 // impede scroll/pinch e estabiliza input mobile
 canvas.style.touchAction = "none";
@@ -46,11 +127,9 @@ const spawner = new ObjectSpawner({
   spawnJitter: 0.35,
   aheadMin: 220,
   aheadMax: 900,
-  xMin: -260,
-  xMax: 260,
   avoidRadius: 120,
+  spawnPoints,
 });
-
 // ===============================
 // PLAYER STATS
 // ===============================
@@ -179,31 +258,30 @@ canvas.addEventListener("pointercancel", endPointer, { passive: false });
 // ===============================
 // RENDER: GUSTAVO (último nó da rope)
 // ===============================
-function drawGustavo(ctx, rope, img, dt) {
+function drawGustavo(ctx, rope, img, dt, ctrl) {
   if (!img?.naturalWidth) return;
 
-  const { x, y, vx, vy } = rope.getDiverPos();
+  const { x, y } = rope.getDiverPos();
   const size = rope.segLen * 16;
   const offX = 0;
   const offY = 8;
 
-  const dtSafe = Math.max(dt, 1 / 60);
-  const vxs = vx / dtSafe;
-  const vys = vy / dtSafe;
+  const inputX = ctrl.ax || 0;
+  const inputY = ctrl.ay || 0;
 
-  const ALPHA = 0.18;
-  gustVxSm += (vxs - gustVxSm) * ALPHA;
-  gustVySm += (vys - gustVySm) * ALPHA;
+  const inputMag2 = inputX * inputX + inputY * inputY;
 
-  const speed2 = gustVxSm * gustVxSm + gustVySm * gustVySm;
+  // só atualiza direção se houver input real
+  if (inputMag2 > 1) {
+    const targetRot = Math.atan2(inputY, inputX) + Math.PI / 2;
 
-  if (speed2 > 40 * 40) {
-    const targetRot = Math.atan2(gustVySm, gustVxSm) + Math.PI / 2;
-
-    const ROT_ALPHA = 0.22;
     let diff = targetRot - gustRot;
     diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-    gustRot += diff * ROT_ALPHA;
+
+    const maxTurn = 4.0 * dt; // controla rapidez da viragem
+    diff = Math.max(-maxTurn, Math.min(maxTurn, diff));
+
+    gustRot += diff;
   }
 
   ctx.save();
@@ -212,36 +290,61 @@ function drawGustavo(ctx, rope, img, dt) {
   ctx.drawImage(img, -size / 2, -size / 2, size, size);
   ctx.restore();
 }
-
 // ===============================
 // LOOT DRAW (DEBUG)
 // ===============================
+const DEBUG_LOOT = false; // mete true se quiseres ver as bolinhas
+
 function drawLoot(o) {
-  // ✅ spawner agora está a gerar x/y relativos ao player em screen coords.
-  // Vamos renderizar como screen coords.
   const x = o.x ?? 0;
   const y = o.y ?? 0;
   const r = o.radius ?? 12;
 
-  ctx.save();
-  ctx.globalAlpha = 0.95;
+  const img = getLootImg(o.assetKey);
 
-  // círculo debug
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(255, 215, 0, 0.85)";
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
-  ctx.stroke();
+  // DEBUG (opcional)
+  if (DEBUG_LOOT) {
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 215, 0, 1)";
+    ctx.fill();
+    ctx.restore();
 
-  // label S/M/L
-  ctx.fillStyle = "#fff";
-  ctx.font = "12px system-ui";
-  ctx.textAlign = "center";
-  ctx.fillText(o.size ?? "?", x, y - r - 6);
+    ctx.save();
+    ctx.fillStyle = "#fff";
+    ctx.font = "12px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(o.size ?? "?", x, y - r - 6);
+    ctx.restore();
+  }
 
-  ctx.restore();
+  // SPRITE
+  if (img && img.naturalWidth > 0) {
+    // queremos que o sprite tenha +/- (2*radius) de largura/altura
+    const targetSize = r * 2;
+
+    const scale = targetSize / Math.max(img.naturalWidth, img.naturalHeight);
+    const w = img.naturalWidth * scale;
+    const h = img.naturalHeight * scale;
+
+    const ax = o.anchor?.x ?? 0.5;
+    const ay = o.anchor?.y ?? 0.5;
+
+    ctx.drawImage(img, x - w * ax, y - h * ay, w, h);
+  } else {
+    // fallback: se ainda não carregou, mostra um pontinho discreto
+    if (!DEBUG_LOOT) {
+      ctx.save();
+      ctx.globalAlpha = 0.15;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "white";
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 }
 
 /*
@@ -372,7 +475,7 @@ function loop(now) {
   if (ropeInited) {
     rope.step(dt, () => getBoatAnchor(boat), ctrl, extraDownForce, limits);
     rope.draw(ctx);
-    drawGustavo(ctx, rope, gustavoImg, dt);
+    drawGustavo(ctx, rope, gustavoImg, dt, ctrl);
   }
 
   // ===============================
@@ -404,9 +507,17 @@ function loop(now) {
   // SPAWNER UPDATE + DRAW (✅ só UMA vez)
   // ===============================
   if (player) {
-    spawner.update(dt, player, null);
+    spawner.update(dt, player, {
+      imageUVToScreen,
+    });
   }
-
+  for (const o of spawner.active) {
+    const pos = imageUVToScreen(o.u, o.v);
+    if (pos) {
+      o.x = pos.x;
+      o.y = pos.y;
+    }
+  }
   for (const o of spawner.active) {
     drawLoot(o);
   }

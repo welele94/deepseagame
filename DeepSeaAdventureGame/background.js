@@ -21,9 +21,9 @@ export function computeIsMobile(canvas) {
 export const camera = {
   x: 0,
   y: 0,
-  zoom: 1.0,
+  zoom: 14.0,
   smoothing: 0.12,
-  initialized: false,
+  initialized: true,
 };
 
 // waterlineNorm vem do storage (ou default)
